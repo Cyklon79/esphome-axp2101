@@ -1,5 +1,4 @@
 #include "axp2101.h"
-#include <Wire.h>
 #include "esp_sleep.h"
 #include "esphome/core/log.h"
 #include <Esp.h>
