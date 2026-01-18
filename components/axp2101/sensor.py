@@ -64,7 +64,7 @@ def to_code(config):
     yield i2c.register_i2c_device(var, config)
 
     # Pin to a known-good XPowersLib version (change if you prefer)
-    cg.add_library("lewisxhe/XPowersLib", "0.2.6")
+    cg.add_library("XPowersLib", "^0.3.2", "https://github.com/lewisxhe/XPowersLib.git")
 
     cg.add(var.set_model(config[CONF_MODEL]))
     cg.add(var.set_brightness(config[CONF_BRIGHTNESS]))
