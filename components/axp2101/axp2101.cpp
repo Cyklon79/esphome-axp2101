@@ -2,6 +2,7 @@
 #include "esp_sleep.h"
 #include "esphome/core/log.h"
 #include <Esp.h>
+#include <Wire.h>
 
 #ifndef CONFIG_PMU_SDA
 #define CONFIG_PMU_SDA 21
@@ -34,7 +35,12 @@ static const char *TAG = "axp2101.sensor";
 
 void AXP2101Component::setup()
 {
-    ESP_LOGCONFIG(TAG, "getID:0x%x", PMU.getChipID());
+    if (!PMU.begin(Wire, 0x34)) {
+        ESP_LOGE(TAG, "Failed to init XPowers PMU on addr 0x34");
+        return;
+    }
+
+    ESP_LOGCONFIG(TAG, "PMU ChipID: 0x%02X", PMU.getChipID());
 
     // Set the minimum common working voltage of the PMU VBUS input,
     // below this value will turn off the PMU
@@ -132,7 +138,7 @@ void AXP2101Component::setup()
     PMU.enableALDO2();
     // PMU.enableALDO3(); // This is the speaker
     PMU.enableALDO4();
-//    PMU.enableBLDO1();
+    PMU.enableBLDO1();
     PMU.enableBLDO2();
     PMU.enableCPUSLDO();
     // PMU.enableDLDO1(); // This is the vibration motor
