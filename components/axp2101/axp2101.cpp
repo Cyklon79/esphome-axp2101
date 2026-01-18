@@ -417,7 +417,9 @@ void AXP2101Component::UpdateBrightness()
   if (brightness_ > 1.0f) brightness_ = 1.0f;
   if (brightness_ == curr_brightness_) return;
 
-  ESP_LOGD(TAG, "Brightness=%f (Curr: %f)", brightness_, curr_brightness_);
+  ESP_LOGD(TAG, "Brightness=%.1f%% (Curr: %.1f%%)",
+         brightness_ * 100.0f,
+         curr_brightness_ * 100.0f);
   curr_brightness_ = brightness_;
 
   // 0..1 -> krok BLDO1 (0..31). Sensowny zakres widoczny zwykle ~[20..30]
@@ -443,7 +445,9 @@ void AXP2101Component::UpdateBrightness()
   uint8_t reg90 = Read8bit(0x90);
   Write1Byte(0x90, uint8_t(reg90 | 0x10));
 
-  ESP_LOGD(TAG, "Set BLDO1 step=%u reg96=0x%02X reg90=0x%02X", step, reg96, uint8_t(reg90 | 0x10));
+  ESP_LOGD(TAG, "Set BLDO1: %.1f%% -> step=%u reg96=0x%02X reg90=0x%02X",
+         curr_brightness_ * 100.0f,
+         step, reg96, uint8_t(reg90 | 0x10));
 }
 
 
