@@ -1,4 +1,5 @@
 #include "axp2101.h"
+#include <Wire.h>
 #include "esp_sleep.h"
 #include "esphome/core/log.h"
 #include <Esp.h>
@@ -34,6 +35,18 @@ static const char *TAG = "axp2101.sensor";
 
 void AXP2101Component::setup()
 {
+  // Initialize XPowersLib PMU wrapper (required for getBattVoltage/getBatteryPercent etc.)
+  // NOTE: XPowersLib reports voltages in *mV* for AXP2101 examples; we convert to V when publishing.
+  bool pmu_ok = PMU.begin(Wire, this->address_, i2c_sda, i2c_scl);
+  if (!pmu_ok) {
+    ESP_LOGE(TAG, "PMU.begin() failed (addr=0x%02X, sda=%u, scl=%u). Battery readings will be unavailable.", this->address_, i2c_sda, i2c_scl);
+    // Do NOT mark the component as failed: backlight control still works via raw I2C writes.
+    initialized_ = false;
+    UpdateBrightness();
+    return;
+  }
+  ESP_LOGI(TAG, "PMU initialized, chip_id=0x%02X", PMU.getChipID());
+
     ESP_LOGCONFIG(TAG, "getID:0x%x", PMU.getChipID());
 
     // Set the minimum common working voltage of the PMU VBUS input,
