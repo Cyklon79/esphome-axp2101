@@ -133,7 +133,7 @@ void AXP2101Component::setup()
     PMU.enableALDO2();
     // PMU.enableALDO3(); // This is the speaker
     PMU.enableALDO4();
-    PMU.enableBLDO1();
+//    PMU.enableBLDO1();
     PMU.enableBLDO2();
     PMU.enableCPUSLDO();
     // PMU.enableDLDO1(); // This is the vibration motor
