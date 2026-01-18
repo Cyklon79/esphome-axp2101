@@ -2,12 +2,12 @@ esphome:
   name: m5core2
   friendly_name: M5Core2
   min_version: 2025.12.0
+
 esp32:
   board: m5stack-core2
   framework:
     type: arduino
 
-# LVGL + grafika lubi PSRAM
 psram:
   mode: quad
   speed: 80MHz
@@ -32,7 +32,6 @@ captive_portal:
 web_server:
   port: 80
 
-# --- I2C (touch + PMIC) ---
 i2c:
   - id: bus_a
     sda: GPIO21
@@ -44,9 +43,8 @@ i2c_device:
   address: 0x34
   i2c_id: bus_a
 
-# --- Zasilanie ekranu (Core2 v1.1 = AXP2101) ---
 external_components:
-  - source: github://Cyklon79/esphome-axp2101
+  - source: github://Cyklon79/esphome-axp2101@Voltage
     components: [ axp2101 ]
     refresh: 0s
 
@@ -72,10 +70,71 @@ sensor:
     battery_charging:
       name: "Battery Charging"
       id: battery_charging
+  - platform: template
+    name: "AXP2101 VBAT raw"
+    id: axp_vbat_raw
+    update_interval: 10s
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 3
+    lambda: |-
+      static uint32_t cnt = 0;
+      uint8_t data[2];
+
+      auto ret = id(axp_raw).read_register(0x34, data, 2);
+      if (ret != esphome::i2c::ERROR_OK) {
+        ESP_LOGW("axp2101.raw", "VBAT read failed (reg 0x34 len=2), err=%d", (int) ret);
+        return NAN;
+      }
+
+      uint16_t raw = ((data[0] & 0x3F) << 8) | data[1];
+      float v = raw / 1000.0f;
+
+      ESP_LOGD("axp2101.raw",
+                "VBAT bytes: hi=0x%02X lo=0x%02X (masked_hi=0x%02X) raw=%u => %.3f V",
+                data[0], data[1], (data[0] & 0x3F), raw, v);
+
+      return v;
+  - platform: template
+    name: "AXP2101 Status 0x00"
+    id: axp_status_00
+    update_interval: 10s
+    accuracy_decimals: 0
+    lambda: |-
+      uint8_t st = 0;
+      auto ret = id(axp_raw).read_register(0x00, &st, 1);
+      if (ret != esphome::i2c::ERROR_OK) {
+        ESP_LOGW("axp2101.raw", "Read reg0x00 failed, err=%d", (int)ret);
+        return NAN;
+      }
+      ESP_LOGD("axp2101.raw", "Reg0x00 status=0x%02X (%u)", st, st);
+      return (float)st;
+  - platform: template
+    name: "AXP2101 Battery % raw"
+    id: axp_batt_pct_raw
+    update_interval: 10s
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    accuracy_decimals: 0
+    lambda: |-
+      uint8_t pct = 0;
+      auto ret = id(axp_raw).read_register(0xA4, &pct, 1);
+      if (ret != esphome::i2c::ERROR_OK) {
+        ESP_LOGW("axp2101.raw", "Read reg0xA4 failed, err=%d", (int)ret);
+        return NAN;
+      }
+      ESP_LOGD("axp2101.raw", "Reg0xA4 gauge pct=%u", pct);
+      return (float)pct;      
 
 binary_sensor:
-  - platform: status
-    name: "M5Core2 Status"
+  - platform: template
+    name: "AXP Battery Present"
+    lambda: |-
+      if (isnan(id(axp_status_00).state)) return false;
+      uint8_t st = (uint8_t) id(axp_status_00).state;
+      return (st & 0x08) != 0;
 
 output:
   - platform: template
