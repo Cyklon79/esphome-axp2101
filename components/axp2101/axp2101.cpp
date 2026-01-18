@@ -287,6 +287,8 @@ void AXP2101Component::setup()
 
     // Set Button Battery charge voltage
     PMU.setButtonBatteryChargeVoltage(3300);
+    initialized_ = true;
+    UpdateBrightness();
 }
 
 void AXP2101Component::dump_config() {

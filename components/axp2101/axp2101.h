@@ -35,7 +35,7 @@ public:
   void set_batteryvoltage_sensor(sensor::Sensor *batteryvoltage_sensor) { batteryvoltage_sensor_ = batteryvoltage_sensor; }
   void set_batterylevel_sensor(sensor::Sensor *batterylevel_sensor) { batterylevel_sensor_ = batterylevel_sensor; }
   void set_batterycharging_bsensor(binary_sensor::BinarySensor *batterycharging_bsensor) { batterycharging_bsensor_ = batterycharging_bsensor; }
-  void set_brightness(float brightness) { brightness_ = brightness; }
+  void set_brightness(float brightness) { brightness_ = brightness; if (initialized_) UpdateBrightness();}
   void set_model(AXP2101Model model) { this->model_ = model; }
 
   // ========== INTERNAL METHODS ==========
@@ -64,6 +64,7 @@ protected:
     void  UpdateBrightness();
     bool  GetBatState();
     uint8_t  GetBatData();
+    bool initialized_{false};
 
     void  EnableCoulombcounter(void);
     void  DisableCoulombcounter(void);
