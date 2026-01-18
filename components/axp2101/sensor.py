@@ -8,9 +8,9 @@ from esphome.const import (
     CONF_ID,
     CONF_MODEL,
     DEVICE_CLASS_BATTERY_CHARGING,
+    DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_VOLTAGE,
     ENTITY_CATEGORY_DIAGNOSTIC,
-    ICON_BATTERY,
     UNIT_PERCENT,
 )
 
@@ -43,7 +43,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_BATTERY_LEVEL): sensor.sensor_schema(
                 unit_of_measurement=UNIT_PERCENT,
                 accuracy_decimals=0,
-                icon=ICON_BATTERY,
+                device_class=DEVICE_CLASS_BATTERY,
             ),
             cv.Optional(CONF_BATTERY_CHARGING): binary_sensor.binary_sensor_schema(
                 device_class=DEVICE_CLASS_BATTERY_CHARGING,
@@ -52,7 +52,7 @@ CONFIG_SCHEMA = (
         }
     )
     .extend(cv.polling_component_schema("60s"))
-    .extend(i2c.i2c_device_schema(0x77))
+    .extend(i2c.i2c_device_schema(0x34))
 )
 
 
@@ -61,7 +61,7 @@ def to_code(config):
     yield cg.register_component(var, config)
     yield i2c.register_i2c_device(var, config)
 
-    cg.add_library("XPowersLib", "^0.3.2", "https://github.com/lewisxhe/XPowersLib.git")
+    cg.add_library("lewisxhe/XPowersLib", "0.3.2")
 
     cg.add(var.set_model(config[CONF_MODEL]))
 

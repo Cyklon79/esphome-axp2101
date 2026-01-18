@@ -16,10 +16,10 @@ enum AXP2101Model {
   AXP2101_M5CORE2,
 };
 
-#define SLEEP_MSEC(us) (((uint64_t)us) * 1000L)
-#define SLEEP_SEC(us)  (((uint64_t)us) * 1000000L)
-#define SLEEP_MIN(us)  (((uint64_t)us) * 60L * 1000000L)
-#define SLEEP_HR(us)   (((uint64_t)us) * 60L * 60L * 1000000L)
+#define SLEEP_MSEC(x) (((uint64_t)(x)) * 1000ULL)
+#define SLEEP_SEC(x)  (((uint64_t)(x)) * 1000000ULL)
+#define SLEEP_MIN(x)  (((uint64_t)(x)) * 60ULL * 1000000ULL)
+#define SLEEP_HR(x)   (((uint64_t)(x)) * 60ULL * 60ULL * 1000000ULL)
 
 #define CURRENT_100MA  (0b0000)
 #define CURRENT_190MA  (0b0001)
@@ -49,16 +49,16 @@ private:
     static std::string GetStartupReason();
 
 protected:
-    sensor::Sensor *batteryvoltage_sensor_;
-    sensor::Sensor *batterylevel_sensor_;
-    binary_sensor::BinarySensor *batterycharging_bsensor_;
+    sensor::Sensor *batteryvoltage_sensor_{nullptr};
+    sensor::Sensor *batterylevel_sensor_{nullptr};
+    binary_sensor::BinarySensor *batterycharging_bsensor_{nullptr};
     float brightness_{1.0f};
     float curr_brightness_{-1.0f};
-    AXP2101Model model_;
+    AXP2101Model model_{AXP2101_M5CORE2};
 
     /** M5Stack Core2 Values
      * LDO2: ILI9342C PWR (Display)
-     * LD03: Vibration Motor
+     * LDO3: Vibration Motor
      */
 
     void  UpdateBrightness();

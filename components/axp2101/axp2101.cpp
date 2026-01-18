@@ -300,38 +300,40 @@ void AXP2101Component::dump_config() {
 float AXP2101Component::get_setup_priority() const { return setup_priority::DATA; }
 
 void AXP2101Component::update() {
+  // Odczytaj raz
+  float vbat = PMU.getBattVoltage();   // najpewniej mV
+  ESP_LOGD(TAG, "Got Battery Voltage=%f", vbat);
 
-    if (this->batterylevel_sensor_ != nullptr) {
-      float vbat = PMU.getBattVoltage();
-      ESP_LOGD(TAG, "Got Battery Voltage=%f", vbat);
-      this->batteryvoltage_sensor_->publish_state(vbat / 1000.);
+  // Voltage sensor (niezależnie)
+  if (this->batteryvoltage_sensor_ != nullptr) {
+    this->batteryvoltage_sensor_->publish_state(vbat / 1000.0f);
+  }
 
-      // The battery percentage may be inaccurate at first use, the PMU will automatically
-      // learn the battery curve and will automatically calibrate the battery percentage
-      // after a charge and discharge cycle
-      float batterylevel;
-      if (PMU.isBatteryConnect()) {
-        batterylevel = PMU.getBatteryPercent();
-      } else {
-        batterylevel = 100.0 * ((vbat - 3.0) / (4.1 - 3.0));
-      }
-
-      ESP_LOGD(TAG, "Got Battery Level=%f", batterylevel);
-      if (batterylevel > 100.) {
-        batterylevel = 100;
-      }
-      this->batterylevel_sensor_->publish_state(batterylevel);
+  // Level sensor (niezależnie)
+  if (this->batterylevel_sensor_ != nullptr) {
+    float batterylevel;
+    if (PMU.isBatteryConnect()) {
+      batterylevel = PMU.getBatteryPercent();
+    } else {
+      batterylevel = 100.0f * ((vbat - 3000.0f) / (4100.0f - 3000.0f));
     }
 
-    if (this->batterycharging_bsensor_ != nullptr) {
-      bool vcharging = PMU.isCharging();
+    if (batterylevel < 0.0f) batterylevel = 0.0f;
+    if (batterylevel > 100.0f) batterylevel = 100.0f;
 
-      ESP_LOGD(TAG, "Got Battery Charging=%s", vcharging ? "true" : "false");
-      this->batterycharging_bsensor_->publish_state(vcharging);
-    }
+    ESP_LOGD(TAG, "Got Battery Level=%f", batterylevel);
+    this->batterylevel_sensor_->publish_state(batterylevel);
+  }
 
-    UpdateBrightness();
+  if (this->batterycharging_bsensor_ != nullptr) {
+    bool vcharging = PMU.isCharging();
+    ESP_LOGD(TAG, "Got Battery Charging=%s", vcharging ? "true" : "false");
+    this->batterycharging_bsensor_->publish_state(vcharging);
+  }
+
+  UpdateBrightness();
 }
+
 
 void AXP2101Component::Write1Byte( uint8_t Addr ,  uint8_t Data )
 {
@@ -409,35 +411,43 @@ void AXP2101Component::ReadBuff( uint8_t Addr , uint8_t Size , uint8_t *Buff )
 
 void AXP2101Component::UpdateBrightness()
 {
-    if (brightness_ == curr_brightness_)
-    {
-        return;
-    }
+  if (brightness_ < 0.0f) brightness_ = 0.0f;
+  if (brightness_ > 1.0f) brightness_ = 1.0f;
+  if (brightness_ == curr_brightness_) return;
 
-    ESP_LOGD(TAG, "Brightness=%f (Curr: %f)", brightness_, curr_brightness_);
-    curr_brightness_ = brightness_;
+  ESP_LOGD(TAG, "Brightness=%f (Curr: %f)", brightness_, curr_brightness_);
+  curr_brightness_ = brightness_;
 
-    const uint8_t c_min = 7;
-    const uint8_t c_max = 12;
-    auto ubri = c_min + static_cast<uint8_t>(brightness_ * (c_max - c_min));
+  // 0..1 -> krok BLDO1 (0..31). Sensowny zakres widoczny zwykle ~[20..30]
+  if (brightness_ <= 0.0f) {
+    ESP_LOGD(TAG, "Brightness zero; disabling BLDO1");
+    // disable BLDO1: REG 0x90 bit4 = 0
+    uint8_t reg90 = Read8bit(0x90);
+    Write1Byte(0x90, uint8_t(reg90 & ~0x10));
+    return;
+  }
 
-    if (ubri > c_max)
-    {
-        ubri = c_max;
-    }
-    switch (this->model_) {
-      case AXP2101_M5CORE2:
-      {
-        uint8_t buf = Read8bit( 0x27 );
-        Write1Byte( 0x27 , ((buf & 0x80) | (ubri << 3)) );
-        break;
-      }
-    }
+  const uint8_t min_vis_step = 20;  // ~2.5V
+  const uint8_t max_step     = 30;  // ~3.5V
+  uint8_t step = uint8_t(brightness_ * (max_step - min_vis_step) + 0.5f) + min_vis_step;
+  if (step > max_step) step = max_step;
+
+  // ustaw napięcie BLDO1: REG 0x96, dolne 5 bitów to krok
+  uint8_t reg96 = Read8bit(0x96);
+  reg96 = uint8_t((reg96 & 0xE0) | (step & 0x1F));
+  Write1Byte(0x96, reg96);
+
+  // enable BLDO1 (REG 0x90 bit4)
+  uint8_t reg90 = Read8bit(0x90);
+  Write1Byte(0x90, uint8_t(reg90 | 0x10));
+
+  ESP_LOGD(TAG, "Set BLDO1 step=%u reg96=0x%02X reg90=0x%02X", step, reg96, uint8_t(reg90 | 0x10));
 }
+
 
 bool AXP2101Component::GetBatState()
 {
-    if( Read8bit(0x01) | 0x20 )
+    if( Read8bit(0x01) & 0x20 )
         return true;
     else
         return false;
@@ -778,8 +788,6 @@ std::string AXP2101Component::GetStartupReason() {
   esp_reset_reason_t reset_reason = ::esp_reset_reason();
   if (reset_reason == ESP_RST_DEEPSLEEP) {
     esp_sleep_source_t wake_reason = esp_sleep_get_wakeup_cause();
-    if (wake_reason == ESP_SLEEP_WAKEUP_EXT0)
-      return "ESP_SLEEP_WAKEUP_EXT0";
     if (wake_reason == ESP_SLEEP_WAKEUP_EXT0)
       return "ESP_SLEEP_WAKEUP_EXT0";
     if (wake_reason == ESP_SLEEP_WAKEUP_EXT1)
