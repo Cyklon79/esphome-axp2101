@@ -35,9 +35,9 @@ static const char *TAG = "axp2101.sensor";
 
 void AXP2101Component::setup()
 {
-    if (!PMU.begin(Wire, 0x34)) {
-        ESP_LOGE(TAG, "Failed to init XPowers PMU on addr 0x34");
-        return;
+    if (!PMU.begin(Wire, 0x34, i2c_sda, i2c_scl)) {
+    ESP_LOGE(TAG, "Failed to init XPowers PMU on addr 0x34");
+    return;
     }
 
     ESP_LOGCONFIG(TAG, "PMU ChipID: 0x%02X", PMU.getChipID());
