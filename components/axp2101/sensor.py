@@ -8,18 +8,16 @@ from esphome.const import (
     CONF_ID,
     CONF_MODEL,
     DEVICE_CLASS_BATTERY_CHARGING,
+    DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_VOLTAGE,
     ENTITY_CATEGORY_DIAGNOSTIC,
-    ICON_BATTERY,
     UNIT_PERCENT,
 )
 
 DEPENDENCIES = ["i2c"]
 
 axp2101_ns = cg.esphome_ns.namespace("axp2101")
-AXP2101Component = axp2101_ns.class_(
-    "AXP2101Component", cg.PollingComponent, i2c.I2CDevice
-)
+AXP2101Component = axp2101_ns.class_("AXP2101Component", cg.PollingComponent, i2c.I2CDevice)
 AXP2101Model = axp2101_ns.enum("AXP2101Model")
 
 MODELS = {
@@ -41,18 +39,22 @@ CONFIG_SCHEMA = (
                 entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             ),
             cv.Optional(CONF_BATTERY_LEVEL): sensor.sensor_schema(
+                device_class=DEVICE_CLASS_BATTERY,
                 unit_of_measurement=UNIT_PERCENT,
                 accuracy_decimals=0,
-                icon=ICON_BATTERY,
+                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             ),
             cv.Optional(CONF_BATTERY_CHARGING): binary_sensor.binary_sensor_schema(
                 device_class=DEVICE_CLASS_BATTERY_CHARGING,
+                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             ),
+            # cv.percentage => float 0.0..1.0
             cv.Optional(CONF_BRIGHTNESS, default=1.0): cv.percentage,
         }
     )
     .extend(cv.polling_component_schema("60s"))
-    .extend(i2c.i2c_device_schema(0x77))
+    # AXP2101 (M5Core2 v1.1) default I2C address
+    .extend(i2c.i2c_device_schema(0x34))
 )
 
 
@@ -61,25 +63,20 @@ def to_code(config):
     yield cg.register_component(var, config)
     yield i2c.register_i2c_device(var, config)
 
-    cg.add_library("XPowersLib", "^0.3.2", "https://github.com/lewisxhe/XPowersLib.git")
+    # Pin to a known-good XPowersLib version (change if you prefer)
+    cg.add_library("lewisxhe/XPowersLib", "0.2.6")
 
     cg.add(var.set_model(config[CONF_MODEL]))
+    cg.add(var.set_brightness(config[CONF_BRIGHTNESS]))
 
     if CONF_BATTERY_VOLTAGE in config:
-        conf = config[CONF_BATTERY_VOLTAGE]
-        sens = yield sensor.new_sensor(conf)
+        sens = yield sensor.new_sensor(config[CONF_BATTERY_VOLTAGE])
         cg.add(var.set_batteryvoltage_sensor(sens))
 
     if CONF_BATTERY_LEVEL in config:
-        conf = config[CONF_BATTERY_LEVEL]
-        sens = yield sensor.new_sensor(conf)
+        sens = yield sensor.new_sensor(config[CONF_BATTERY_LEVEL])
         cg.add(var.set_batterylevel_sensor(sens))
 
     if CONF_BATTERY_CHARGING in config:
-        conf = config[CONF_BATTERY_CHARGING]
-        sens = yield binary_sensor.new_binary_sensor(conf)
-        cg.add(var.set_batterycharging_bsensor(sens))
-
-    if CONF_BRIGHTNESS in config:
-        conf = config[CONF_BRIGHTNESS]
-        cg.add(var.set_brightness(conf))
+        bsens = yield binary_sensor.new_binary_sensor(config[CONF_BATTERY_CHARGING])
+        cg.add(var.set_batterycharging_bsensor(bsens))
