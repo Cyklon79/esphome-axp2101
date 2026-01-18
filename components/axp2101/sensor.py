@@ -23,7 +23,6 @@ AXP2101Model = axp2101_ns.enum("AXP2101Model")
 MODELS = {
     "M5CORE2": AXP2101Model.AXP2101_M5CORE2,
 }
-
 AXP2101_MODEL = cv.enum(MODELS, upper=True, space="_")
 
 CONF_BATTERY_CHARGING = "battery_charging"
@@ -39,35 +38,26 @@ CONFIG_SCHEMA = (
                 entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             ),
             cv.Optional(CONF_BATTERY_LEVEL): sensor.sensor_schema(
-                device_class=DEVICE_CLASS_BATTERY,
                 unit_of_measurement=UNIT_PERCENT,
                 accuracy_decimals=0,
-                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+                device_class=DEVICE_CLASS_BATTERY,
             ),
             cv.Optional(CONF_BATTERY_CHARGING): binary_sensor.binary_sensor_schema(
                 device_class=DEVICE_CLASS_BATTERY_CHARGING,
-                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             ),
-            # cv.percentage => float 0.0..1.0
             cv.Optional(CONF_BRIGHTNESS, default=1.0): cv.percentage,
         }
     )
-    .extend(cv.polling_component_schema("60s"))
-    # AXP2101 (M5Core2 v1.1) default I2C address
+    .extend(cv.polling_component_schema("10s"))
     .extend(i2c.i2c_device_schema(0x34))
 )
-
 
 def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     yield cg.register_component(var, config)
     yield i2c.register_i2c_device(var, config)
 
-    # Pin to a known-good XPowersLib version (change if you prefer)
-    cg.add_library("XPowersLib", "^0.3.2", "https://github.com/lewisxhe/XPowersLib.git")
-
     cg.add(var.set_model(config[CONF_MODEL]))
-    cg.add(var.set_brightness(config[CONF_BRIGHTNESS]))
 
     if CONF_BATTERY_VOLTAGE in config:
         sens = yield sensor.new_sensor(config[CONF_BATTERY_VOLTAGE])
@@ -78,5 +68,7 @@ def to_code(config):
         cg.add(var.set_batterylevel_sensor(sens))
 
     if CONF_BATTERY_CHARGING in config:
-        bsens = yield binary_sensor.new_binary_sensor(config[CONF_BATTERY_CHARGING])
-        cg.add(var.set_batterycharging_bsensor(bsens))
+        sens = yield binary_sensor.new_binary_sensor(config[CONF_BATTERY_CHARGING])
+        cg.add(var.set_batterycharging_bsensor(sens))
+
+    cg.add(var.set_brightness(config[CONF_BRIGHTNESS]))
