@@ -15,7 +15,8 @@ psram:
 logger:
   level: DEBUG
   logs:
-    sensor: INFO  
+    sensor: INFO
+    text_sensor: INFO
 
 api:
 
@@ -43,7 +44,6 @@ i2c:
     # TBD: set to false for production
     scan: true
 
-
 i2c_device:
   id: axp_raw
   address: 0x34
@@ -56,6 +56,37 @@ external_components:
     components: [ axp2101 ]
     # TBD: Remove for production
     refresh: 0s
+
+globals:
+  - id: battery_is_charging
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: v_filt
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: slope_filt_vph
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: v_prev
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: stable_counter
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: mode
+    type: int          # 0=DETECTING, 1=CHARGING, 2=FULL, 3=DISCHARGING
+    restore_value: no
+    initial_value: '0'
+
+text_sensor:
+  - platform: template
+    name: "Battery Mode"
+    id: battery_mode
 
 sensor:
   - platform: axp2101
@@ -76,9 +107,6 @@ sensor:
       device_class: battery
       unit_of_measurement: "%"
       state_class: measurement
-    battery_charging:
-      name: "Battery Charging"
-      id: battery_charging
 
 binary_sensor:
   - platform: status
@@ -128,7 +156,6 @@ display:
     lambda: |-
       const float batt_v = id(battery_voltage).state;
       const float batt_pct = id(battery_level_id).state;
-      const bool charging = id(battery_charging).state;
 
       const float bri_pct = id(backlight_light).current_values.get_brightness() * 100.0f;
 
@@ -141,5 +168,89 @@ display:
 
       if (!isnan(batt_v))   it.printf(10, 130, id(roboto), "Voltage: %.2f V", batt_v);
       else                  it.printf(10, 130, id(roboto), "Voltage: --.- V");
+      
+      auto mode = id(battery_mode).state;
+      if (mode.empty()) mode = "DETECTING";
+      it.printf(10, 170, id(roboto), "Mode: %s", mode.c_str());
 
-      it.printf(10, 170, id(roboto), "Charging: %s", charging ? "YES" : "NO");
+interval:
+  #Recommended 60s
+  - interval: 10s
+    then:
+      - lambda: |-
+          const float dt_s = 10.0f;
+          // Jeśli chcesz ograniczyć false-positive, odkomentuj i licz trend tylko przy stabilnym obciążeniu, np. gdy ekran off:
+          // if (id(display_backlight).current_values.is_on()) return;
+
+          float v = id(battery_voltage).state;
+          if (!isfinite(v) || v < 2.5f || v > 4.5f) return;
+
+          if (id(v_filt) <= 0.01f) {
+            id(v_filt) = v;
+            id(v_prev) = v;
+            id(slope_filt_vph) = 0.0f;
+            id(battery_mode).publish_state("DETECTING");
+            return;
+          }
+
+          // 1) EMA napięcia
+          const float a_v = 0.2f;
+          id(v_filt) = (a_v * v) + ((1.0f - a_v) * id(v_filt));
+
+          // 2) Trend w V/h 
+          float dv = id(v_filt) - id(v_prev);
+          id(v_prev) = id(v_filt);
+          float slope_vph = dv * (3600.0f / dt_s);
+
+          // 3) EMA trendu
+          const float a_s = 0.3f;
+          id(slope_filt_vph) = (a_s * slope_vph) + ((1.0f - a_s) * id(slope_filt_vph));
+
+          // Progi
+          const float V_FULL = 4.15f;
+          const float V_FULL_HI = 0.02f;   // histereza górą
+          const float V_CHG_HI  = 0.03f;   // histereza do ładowania (poniżej)
+          const float S_POS = 0.010f;      // +10 mV/h
+          const float S_NEG = -0.010f;     // -10 mV/h
+          const float S_FLAT = 0.100f;
+
+          // Logika stanowa z licznikami
+          int new_mode = id(mode);
+
+          bool want_charging = (id(v_filt) < (V_FULL - V_CHG_HI)) && (id(slope_filt_vph) > S_POS);
+          bool want_full     = (id(v_filt) > (V_FULL + V_FULL_HI)) && (fabsf(id(slope_filt_vph)) < S_FLAT);
+          bool want_dis      = (id(slope_filt_vph) < S_NEG);
+
+          // Priorytet: FULL > CHARGING > DISCHARGING
+          int candidate = 0;
+          if (want_full) candidate = 2;
+          else if (want_charging) candidate = 1;
+          else if (want_dis) candidate = 3;
+          else candidate = 0;
+
+          if (candidate == id(mode)) {
+            id(stable_counter) = 0; // już jesteśmy w tym stanie
+          } else {
+            id(stable_counter)++;
+            // minimalny czas potwierdzenia
+            int req = 0;
+            if (candidate == 2) req = 10; // FULL: 10 min
+            else if (candidate == 1 || candidate == 3) req = 3; // CHG/DIS: 3 min
+            else req = 3; // DETECTING: 3 min
+
+            if (id(stable_counter) >= req) {
+              new_mode = candidate;
+              id(stable_counter) = 0;
+            }
+          }
+
+          id(mode) = new_mode;
+
+          // Publikacja trybu + ustawienie Twojej flagi do ikonki
+          const char* txt = "DETECTING";
+          if (id(mode) == 1) txt = "CHARGING";
+          else if (id(mode) == 2) txt = "FULL";
+          else if (id(mode) == 3) txt = "DISCHARGING";
+          id(battery_mode).publish_state(txt);
+
+          id(battery_is_charging) = (id(mode) == 1);
