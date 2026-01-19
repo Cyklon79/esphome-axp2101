@@ -13,6 +13,9 @@ psram:
   speed: 80MHz
 
 logger:
+  level: DEBUG
+  logs:
+    sensor: INFO  
 
 api:
 
@@ -29,6 +32,7 @@ wifi:
 
 captive_portal:
 
+# TBD: Disable for production
 web_server:
   port: 80
 
@@ -36,7 +40,9 @@ i2c:
   - id: bus_a
     sda: GPIO21
     scl: GPIO22
+    # TBD: set to false for production
     scan: true
+
 
 i2c_device:
   id: axp_raw
@@ -44,8 +50,11 @@ i2c_device:
   i2c_id: bus_a
 
 external_components:
-  - source: github://Cyklon79/esphome-axp2101@Voltage
+  - source:
+      type: local
+      path: /config/esphome/my_components/esphome-axp2101/components
     components: [ axp2101 ]
+    # TBD: Remove for production
     refresh: 0s
 
 sensor:
@@ -58,7 +67,7 @@ sensor:
     battery_voltage:
       name: "Battery Voltage"
       id: battery_voltage
-      device_class: Voltage
+      device_class: voltage
       unit_of_measurement: "V"
       state_class: measurement
     battery_level:
@@ -70,71 +79,11 @@ sensor:
     battery_charging:
       name: "Battery Charging"
       id: battery_charging
-  - platform: template
-    name: "AXP2101 VBAT raw"
-    id: axp_vbat_raw
-    update_interval: 10s
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 3
-    lambda: |-
-      static uint32_t cnt = 0;
-      uint8_t data[2];
-
-      auto ret = id(axp_raw).read_register(0x34, data, 2);
-      if (ret != esphome::i2c::ERROR_OK) {
-        ESP_LOGW("axp2101.raw", "VBAT read failed (reg 0x34 len=2), err=%d", (int) ret);
-        return NAN;
-      }
-
-      uint16_t raw = ((data[0] & 0x3F) << 8) | data[1];
-      float v = raw / 1000.0f;
-
-      ESP_LOGD("axp2101.raw",
-                "VBAT bytes: hi=0x%02X lo=0x%02X (masked_hi=0x%02X) raw=%u => %.3f V",
-                data[0], data[1], (data[0] & 0x3F), raw, v);
-
-      return v;
-  - platform: template
-    name: "AXP2101 Status 0x00"
-    id: axp_status_00
-    update_interval: 10s
-    accuracy_decimals: 0
-    lambda: |-
-      uint8_t st = 0;
-      auto ret = id(axp_raw).read_register(0x00, &st, 1);
-      if (ret != esphome::i2c::ERROR_OK) {
-        ESP_LOGW("axp2101.raw", "Read reg0x00 failed, err=%d", (int)ret);
-        return NAN;
-      }
-      ESP_LOGD("axp2101.raw", "Reg0x00 status=0x%02X (%u)", st, st);
-      return (float)st;
-  - platform: template
-    name: "AXP2101 Battery % raw"
-    id: axp_batt_pct_raw
-    update_interval: 10s
-    unit_of_measurement: "%"
-    device_class: battery
-    state_class: measurement
-    accuracy_decimals: 0
-    lambda: |-
-      uint8_t pct = 0;
-      auto ret = id(axp_raw).read_register(0xA4, &pct, 1);
-      if (ret != esphome::i2c::ERROR_OK) {
-        ESP_LOGW("axp2101.raw", "Read reg0xA4 failed, err=%d", (int)ret);
-        return NAN;
-      }
-      ESP_LOGD("axp2101.raw", "Reg0xA4 gauge pct=%u", pct);
-      return (float)pct;      
 
 binary_sensor:
-  - platform: template
-    name: "AXP Battery Present"
-    lambda: |-
-      if (isnan(id(axp_status_00).state)) return false;
-      uint8_t st = (uint8_t) id(axp_status_00).state;
-      return (st & 0x08) != 0;
+  - platform: status
+    name: "M5Core2 Status"
+    entity_category: diagnostic
 
 output:
   - platform: template
@@ -153,6 +102,8 @@ light:
     output: backlight_out
     gamma_correct: 1.0
     restore_mode: RESTORE_DEFAULT_ON
+    on_state:
+      - component.update: lcd
 
 # --- SPI (ekran) ---
 spi:
@@ -167,43 +118,28 @@ font:
 
 display:
   - platform: ili9xxx
+    id: lcd
     model: M5STACK
     dimensions: 320x240
     cs_pin: GPIO5
     dc_pin: GPIO15
     invert_colors: false
-    update_interval: 500ms
+    update_interval: 2s
     lambda: |-
-      // --- Read sensors/state from ESPHome entities ---
-      float batt_v = NAN;
-      float batt_pct = NAN;
-      bool charging = false;
+      const float batt_v = id(battery_voltage).state;
+      const float batt_pct = id(battery_level_id).state;
+      const bool charging = id(battery_charging).state;
 
-      if (!isnan(id(battery_voltage).state)) batt_v = id(battery_voltage).state;        // Volts
-      if (!isnan(id(battery_level_id).state)) batt_pct = id(battery_level_id).state;   // Percent
-      charging = id(battery_charging).state;
+      const float bri_pct = id(backlight_light).current_values.get_brightness() * 100.0f;
 
-      // Read brightness from the Light entity (0.0 .. 1.0)
-      float bri01 = id(backlight_light).current_values.get_brightness();
-      float bri_pct = bri01 * 100.0f;
+      it.fill(Color(0, 0, 0));
 
-      // --- Clear screen (needs esphome::Color) ---
-      it.fill(Color(0, 0, 0));  // black
-
-      // --- Render text ---
-      
       it.printf(10, 50, id(roboto), "Brightness: %.0f%%", bri_pct);
 
-      if (!isnan(batt_pct))
-        it.printf(10, 90, id(roboto), "Battery: %.0f%%", batt_pct);
-      else
-        it.printf(10, 90, id(roboto), "Battery: --%%");
+      if (!isnan(batt_pct)) it.printf(10, 90,  id(roboto), "Battery: %.0f%%", batt_pct);
+      else                  it.printf(10, 90,  id(roboto), "Battery: --%%");
 
-      if (!isnan(batt_v))
-        it.printf(10, 130, id(roboto), "Voltage: %.2f V", batt_v);
-      else
-        it.printf(10, 130, id(roboto), "Voltage: --.- V");
+      if (!isnan(batt_v))   it.printf(10, 130, id(roboto), "Voltage: %.2f V", batt_v);
+      else                  it.printf(10, 130, id(roboto), "Voltage: --.- V");
 
       it.printf(10, 170, id(roboto), "Charging: %s", charging ? "YES" : "NO");
-
-

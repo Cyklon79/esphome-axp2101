@@ -324,7 +324,7 @@ float AXP2101Component::get_setup_priority() const { return setup_priority::DATA
 void AXP2101Component::update() {
   // Odczytaj raz
   float vbat = PMU.getBattVoltage();   // najpewniej mV
-  ESP_LOGD(TAG, "Got Battery Voltage=%f", vbat);
+  ESP_LOGVV(TAG, "Got Battery Voltage=%f", vbat);
 
   // Voltage sensor (niezależnie)
   if (this->batteryvoltage_sensor_ != nullptr) {
@@ -343,13 +343,13 @@ void AXP2101Component::update() {
     if (batterylevel < 0.0f) batterylevel = 0.0f;
     if (batterylevel > 100.0f) batterylevel = 100.0f;
 
-    ESP_LOGD(TAG, "Got Battery Level=%f", batterylevel);
+    ESP_LOGVV(TAG, "Got Battery Level=%f", batterylevel);
     this->batterylevel_sensor_->publish_state(batterylevel);
   }
 
   if (this->batterycharging_bsensor_ != nullptr) {
     bool vcharging = PMU.isCharging();
-    ESP_LOGD(TAG, "Got Battery Charging=%s", vcharging ? "true" : "false");
+    ESP_LOGVV(TAG, "Got Battery Charging=%s", vcharging ? "true" : "false");
     this->batterycharging_bsensor_->publish_state(vcharging);
   }
 
