@@ -174,11 +174,10 @@ display:
       it.printf(10, 170, id(roboto), "Mode: %s", mode.c_str());
 
 interval:
-  #Recommended 60s
-  - interval: 10s
+  - interval: 30s
     then:
       - lambda: |-
-          const float dt_s = 10.0f;
+          const float dt_s = 30.0f;
           // Jeśli chcesz ograniczyć false-positive, odkomentuj i licz trend tylko przy stabilnym obciążeniu, np. gdy ekran off:
           // if (id(display_backlight).current_values.is_on()) return;
 
@@ -233,10 +232,10 @@ interval:
           } else {
             id(stable_counter)++;
             // minimalny czas potwierdzenia
-            int req = 0;
-            if (candidate == 2) req = 10; // FULL: 10 min
-            else if (candidate == 1 || candidate == 3) req = 3; // CHG/DIS: 3 min
-            else req = 3; // DETECTING: 3 min
+            int req = 1;
+            if (candidate == 2) req = 2; // FULL
+            else if (candidate == 1 || candidate == 3) req = 3; // CHG/DIS: 
+            else req = 3; // DETECTING: 
 
             if (id(stable_counter) >= req) {
               new_mode = candidate;
