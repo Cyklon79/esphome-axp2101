@@ -30,10 +30,30 @@ void setFlag(void)
 namespace esphome {
 namespace axp2101 {
 
+#include "esphome/components/i2c/i2c.h"
+
+static esphome::i2c::I2CDevice *g_axp = nullptr;
+
+static int xp_read(uint8_t dev, uint8_t reg, uint8_t *data, uint8_t len) {
+  if (!g_axp) return -1;
+  auto err = g_axp->read_register(reg, data, len);
+  return (err == esphome::i2c::ERROR_OK) ? 0 : -1;
+}
+
+static int xp_write(uint8_t dev, uint8_t reg, uint8_t *data, uint8_t len) {
+  if (!g_axp) return -1;
+  auto err = g_axp->write_register(reg, data, len);
+  return (err == esphome::i2c::ERROR_OK) ? 0 : -1;
+}
+
+
 static const char *TAG = "axp2101.sensor";
 
 void AXP2101Component::setup()
 {
+    g_axp = this;  // jeśli Twój komponent dziedziczy po i2c::I2CDevice
+    bool ok = PMU.begin(this->address_, xp_read, xp_write);
+    ESP_LOGI(TAG, "PMU.begin(cb)=%s chip=0x%02X", ok ? "OK" : "FAIL", PMU.getChipID());
     ESP_LOGCONFIG(TAG, "getID:0x%x", PMU.getChipID());
 
     // Set the minimum common working voltage of the PMU VBUS input,
