@@ -18,6 +18,17 @@ logger:
     sensor: INFO
     text_sensor: INFO
 
+substitutions:
+  l1_entity: "light.ws_sypialnia_lozko_l1"
+  l2_entity: "light.ws_sypialnia_lozko_l2"
+  l3_entity: "light.ws_sypialnia_przedsionek_l2"
+  l4_entity: "light.sp_sypialnia_lampka_2"
+  l1_name: "Lozko 1"
+  l2_name: "Lozko 2"
+  l3_name: "Przedsionek l2"
+  l4_name: "Lampka"
+
+
 api:
 
 ota:
@@ -113,6 +124,66 @@ binary_sensor:
     name: "M5Core2 Status"
     entity_category: diagnostic
 
+  - platform: homeassistant
+    id: ha_l1
+    entity_id: ${l1_entity}
+    publish_initial_state: true
+    on_state:
+      then:
+        - lvgl.widget.update:
+            id: btn_l1
+            state:
+              checked: !lambda return x;
+        - lvgl.label.update:
+            id: lbl_l1
+            text: !lambda |-
+              return std::string("${l1_name}\n") + (x ? "ON" : "OFF");
+
+  - platform: homeassistant
+    id: ha_l2
+    entity_id: ${l2_entity}
+    publish_initial_state: true
+    on_state:
+      then:
+        - lvgl.widget.update:
+            id: btn_l2
+            state:
+              checked: !lambda return x;
+        - lvgl.label.update:
+            id: lbl_l2
+            text: !lambda |-
+              return std::string("${l2_name}\n") + (x ? "ON" : "OFF");
+
+  - platform: homeassistant
+    id: ha_l3
+    entity_id: ${l3_entity}
+    publish_initial_state: true
+    on_state:
+      then:
+        - lvgl.widget.update:
+            id: btn_l3
+            state:
+              checked: !lambda return x;
+        - lvgl.label.update:
+            id: lbl_l3
+            text: !lambda |-
+              return std::string("${l3_name}\n") + (x ? "ON" : "OFF");
+
+  - platform: homeassistant
+    id: ha_l4
+    entity_id: ${l4_entity}
+    publish_initial_state: true
+    on_state:
+      then:
+        - lvgl.widget.update:
+            id: btn_l4
+            state:
+              checked: !lambda return x;
+        - lvgl.label.update:
+            id: lbl_l4
+            text: !lambda |-
+              return std::string("${l4_name}\n") + (x ? "ON" : "OFF");
+
 output:
   - platform: template
     id: backlight_out
@@ -145,33 +216,22 @@ font:
     size: 24
 
 display:
-  - platform: ili9xxx
+  - platform: mipi_spi
     id: lcd
-    model: M5STACK
-    dimensions: 320x240
-    cs_pin: GPIO5
-    dc_pin: GPIO15
-    invert_colors: false
-    update_interval: 2s
-    lambda: |-
-      const float batt_v = id(battery_voltage).state;
-      const float batt_pct = id(battery_level_id).state;
+    model: M5CORE2
+    auto_clear_enabled: false
+    update_interval: never
 
-      const float bri_pct = id(backlight_light).current_values.get_brightness() * 100.0f;
-
-      it.fill(Color(0, 0, 0));
-
-      it.printf(10, 50, id(roboto), "Brightness: %.0f%%", bri_pct);
-
-      if (!isnan(batt_pct)) it.printf(10, 90,  id(roboto), "Battery: %.0f%%", batt_pct);
-      else                  it.printf(10, 90,  id(roboto), "Battery: --%%");
-
-      if (!isnan(batt_v))   it.printf(10, 130, id(roboto), "Voltage: %.2f V", batt_v);
-      else                  it.printf(10, 130, id(roboto), "Voltage: --.- V");
-      
-      auto mode = id(battery_mode).state;
-      if (mode.empty()) mode = "DETECTING";
-      it.printf(10, 170, id(roboto), "Mode: %s", mode.c_str());
+touchscreen:
+  - platform: ft63x6
+    id: ts
+    i2c_id: bus_a
+    address: 0x38
+    # interrupt_pin: GPIO39   # <- na razie WYŁĄCZ, testujemy polling
+#    on_touch:
+#      - logger.log:
+#          format: "TOUCH x=%d y=%d"
+#          args: ["touch.x", "touch.y"]
 
 interval:
   - interval: 30s
@@ -253,3 +313,121 @@ interval:
           id(battery_mode).publish_state(txt);
 
           id(battery_is_charging) = (id(mode) == 1);
+
+lvgl:
+  displays: [lcd]
+  touchscreens:
+    - touchscreen_id: ts
+
+  theme:
+    button:
+      bg_color: 0x303030        # OFF
+      text_color: 0xFFFFFF
+      border_width: 0
+      bg_opa: COVER
+      checked:                  # ON
+        bg_color: 0x1B5E20
+        text_color: 0xFFFFFF
+
+  style_definitions:
+    - id: light_btn
+      radius: 16
+      pad_all: 10
+      outline_width: 0
+
+    - id: grid_root
+      pad_all: 10
+      bg_opa: TRANSP
+      border_opa: TRANSP
+
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            align: CENTER
+            width: 320
+            height: 240
+            styles: grid_root
+            layout:
+              type: GRID
+              grid_columns: [FR(1), FR(1)]
+              grid_rows: [FR(1), FR(1)]
+              pad_row: 10
+              pad_column: 10
+
+            widgets:
+              - button:
+                  id: btn_l1
+                  checkable: true
+                  styles: light_btn
+                  grid_cell_column_pos: 0
+                  grid_cell_row_pos: 0
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  widgets:
+                    - label:
+                        id: lbl_l1
+                        align: CENTER
+                        text: "${l1_name}\n--"
+                  on_click:
+                    - homeassistant.action:
+                        action: light.toggle
+                        data:
+                          entity_id: ${l1_entity}
+
+              - button:
+                  id: btn_l2
+                  checkable: true
+                  styles: light_btn
+                  grid_cell_column_pos: 1
+                  grid_cell_row_pos: 0
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  widgets:
+                    - label:
+                        id: lbl_l2
+                        align: CENTER
+                        text: "${l2_name}\n--"
+                  on_click:
+                    - homeassistant.action:
+                        action: light.toggle
+                        data:
+                          entity_id: ${l2_entity}
+
+              - button:
+                  id: btn_l3
+                  checkable: true
+                  styles: light_btn
+                  grid_cell_column_pos: 0
+                  grid_cell_row_pos: 1
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  widgets:
+                    - label:
+                        id: lbl_l3
+                        align: CENTER
+                        text: "${l3_name}\n--"
+                  on_click:
+                    - homeassistant.action:
+                        action: light.toggle
+                        data:
+                          entity_id: ${l3_entity}
+
+              - button:
+                  id: btn_l4
+                  checkable: true
+                  styles: light_btn
+                  grid_cell_column_pos: 1
+                  grid_cell_row_pos: 1
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  widgets:
+                    - label:
+                        id: lbl_l4
+                        align: CENTER
+                        text: "${l4_name}\n--"
+                  on_click:
+                    - homeassistant.action:
+                        action: light.toggle
+                        data:
+                          entity_id: ${l4_entity}
