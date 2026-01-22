@@ -2,6 +2,18 @@ esphome:
   name: m5core2
   friendly_name: M5Core2
   min_version: 2025.12.0
+  on_boot:
+    - priority: 600
+      then:
+        - delay: 300ms
+        - light.turn_on:
+            id: backlight_light
+            brightness: !lambda return id(saved_brightness);
+    - priority: 800
+      then:
+        - lambda: |-
+            auto cause = esp_sleep_get_wakeup_cause();
+            ESP_LOGW("wakeup", "Wakeup cause: %d", (int)cause);
 
 esp32:
   board: m5stack-core2
@@ -93,6 +105,45 @@ globals:
     type: int          # 0=DETECTING, 1=CHARGING, 2=FULL, 3=DISCHARGING
     restore_value: no
     initial_value: '0'
+  - id: last_pwr_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: saved_brightness
+    type: float
+    restore_value: yes
+    initial_value: '0.6'   # domyślna jasność po pierwszym starcie
+
+switch:
+  - platform: template
+    name: "Core2 Allow PowerOff"
+    id: allow_poweroff
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+
+
+deep_sleep:
+  id: deep_sleep_ctrl
+  wakeup_pin:
+    number: GPIO39
+    inverted: true
+
+script:
+  - id: power_off
+    mode: single
+    then:
+      - lambda: |-
+          // zapisz aktualną jasność (0.0 .. 1.0)
+          float b = id(backlight_light).current_values.get_brightness();
+          if (b > 0.01f) id(saved_brightness) = b;
+          ESP_LOGD("pwr", "Saved brightness=%.3f", id(saved_brightness));
+          id(axp_comp).set_brightness(0.0f);
+      - logger.log: "POWER_OFF requested -> entering deep sleep in 1s"
+#      - light.turn_off: backlight_light
+      - delay: 1s
+      - deep_sleep.enter: deep_sleep_ctrl
+
 
 text_sensor:
   - platform: template
@@ -184,12 +235,14 @@ binary_sensor:
             text: !lambda |-
               return std::string("${l4_name}\n") + (x ? "ON" : "OFF");
 
+
 output:
   - platform: template
     id: backlight_out
     type: float
     write_action:
       - lambda: |-
+          ESP_LOGD("pwr", "Backlight write_action state=%.3f", state);
           // state: 0.0 .. 1.0
           id(axp_comp).set_brightness(state);
 
@@ -227,11 +280,26 @@ touchscreen:
     id: ts
     i2c_id: bus_a
     address: 0x38
-    # interrupt_pin: GPIO39   # <- na razie WYŁĄCZ, testujemy polling
-#    on_touch:
-#      - logger.log:
-#          format: "TOUCH x=%d y=%d"
-#          args: ["touch.x", "touch.y"]
+    display: lcd
+    update_interval: 50ms
+    # interrupt_pin: GPIO39
+
+    on_touch:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            if (now - id(last_pwr_ms) < 800) return;
+
+            const int x = touch.x;
+            const int y = touch.y;
+
+            // Twoje logi dla B: x≈156, y=239
+            // Środek (107..213) i sam dół ekranu (>=232)
+            if (x >= 107 && x <= 213 && y >= 232) {
+              id(last_pwr_ms) = now;
+              ESP_LOGW("pwr", "TouchB detected (x=%d y=%d) -> power_off()", x, y);
+              id(power_off).execute();
+            }
 
 interval:
   - interval: 30s
