@@ -31,14 +31,9 @@ logger:
     text_sensor: INFO
 
 substitutions:
-  l1_entity: "light.ws_sypialnia_lozko_l1"
-  l2_entity: "light.ws_sypialnia_lozko_l2"
-  l3_entity: "light.ws_sypialnia_przedsionek_l2"
-  l4_entity: "light.sp_sypialnia_lampka_2"
-  l1_name: "Lozko 1"
-  l2_name: "Lozko 2"
-  l3_name: "Przedsionek l2"
-  l4_name: "Lampka"
+  temp_entity: sensor.th_sypialnia_temperature
+  sw1_entity: light.sp_sypialnia_lampka_2
+  sw2_entity: light.ws_sypialnia_lozko_l1
 
 
 api:
@@ -66,11 +61,6 @@ i2c:
     scl: GPIO22
     # TBD: set to false for production
     scan: true
-
-i2c_device:
-  id: axp_raw
-  address: 0x34
-  i2c_id: bus_a
 
 external_components:
   - source:
@@ -116,11 +106,36 @@ globals:
 
 switch:
   - platform: template
-    name: "Core2 Allow PowerOff"
-    id: allow_poweroff
+    id: sw1_hass
     optimistic: true
+    internal: true
     restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - homeassistant.action:
+          action: light.turn_on
+          data:
+            entity_id: ${sw1_entity}
+    on_turn_off:
+      - homeassistant.action:
+          action: light.turn_off
+          data:
+            entity_id: ${sw1_entity}
 
+  - platform: template
+    id: sw2_hass
+    optimistic: true
+    internal: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - homeassistant.action:
+          action: light.turn_on
+          data:
+            entity_id: ${sw2_entity}
+    on_turn_off:
+      - homeassistant.action:
+          action: light.turn_off
+          data:
+            entity_id: ${sw2_entity}
 
 
 deep_sleep:
@@ -169,6 +184,102 @@ sensor:
       device_class: battery
       unit_of_measurement: "%"
       state_class: measurement
+      on_value:
+        then:
+          - lvgl.label.update:
+              id: batt_pct
+              text:
+                format: "%0.0f%%"
+                args: [id(battery_level_id).state]
+          - lvgl.label.update:
+              id: batt_icon
+              text: !lambda |-
+                // zwraca UTF-8 ikony MDI
+                static char buf[8];
+                std::string icon;
+                float pct = id(battery_level_id).state;
+
+                if (id(battery_is_charging)) icon = "\U000F0084";
+                else if (pct >= 99.0) icon = "\U000F0079";
+                else if (pct > 90) icon = "\U000F0082";
+                else if (pct > 80) icon = "\U000F0081";
+                else if (pct > 70) icon = "\U000F0080";
+                else if (pct > 60) icon = "\U000F007F";
+                else if (pct > 50) icon = "\U000F007E";
+                else if (pct > 40) icon = "\U000F007D";
+                else if (pct > 30) icon = "\U000F007C";
+                else if (pct > 20) icon = "\U000F007B";
+                else if (pct > 10) icon = "\U000F007A";
+                else if (pct > 0)  icon = "\U000F008E";
+                else             icon = "\U000F0091";
+
+                snprintf(buf, sizeof(buf), "%s", icon.c_str());
+                return buf;
+  - platform: homeassistant
+    id: ha_temp
+    entity_id: ${temp_entity}
+    on_value:
+      then:
+        # --- górne 3 "wykresy" (arc) ---
+        - lvgl.arc.update:
+            id: chart_1_arc
+            value: !lambda |-
+              float t = x;
+              if (!isfinite(t)) return 0;
+              if (t < 0) t = 0;
+              if (t > 30) t = 30;
+              return (int) lroundf(t);
+
+        - lvgl.arc.update:
+            id: chart_2_arc
+            value: !lambda |-
+              float t = x;
+              if (!isfinite(t)) return 0;
+              if (t < 0) t = 0;
+              if (t > 30) t = 30;
+              return (int) lroundf(t);
+
+        - lvgl.arc.update:
+            id: chart_3_arc
+            value: !lambda |-
+              float t = x;
+              if (!isfinite(t)) return 0;
+              if (t < 0) t = 0;
+              if (t > 30) t = 30;
+              return (int) lroundf(t);
+
+        # --- dolny bar ---
+        - lvgl.bar.update:
+            id: chart_4_bar
+            value: !lambda |-
+              float t = x;
+              if (!isfinite(t)) return 0;
+              if (t < 0) t = 0;
+              if (t > 30) t = 30;
+              return (int) lroundf(t);
+
+        # --- teksty wartości ---
+        - lvgl.label.update:
+            id: chart_1_val
+            text:
+              format: "%.1f°C"
+              args: [x]
+        - lvgl.label.update:
+            id: chart_2_val
+            text:
+              format: "%.1f°C"
+              args: [x]
+        - lvgl.label.update:
+            id: chart_3_val
+            text:
+              format: "%.1f°C"
+              args: [x]
+        - lvgl.label.update:
+            id: chart_4_val
+            text:
+              format: "%.1f°C"
+              args: [x]
+
 
 binary_sensor:
   - platform: status
@@ -176,64 +287,34 @@ binary_sensor:
     entity_category: diagnostic
 
   - platform: homeassistant
-    id: ha_l1
-    entity_id: ${l1_entity}
-    publish_initial_state: true
+    id: ha_sw1
+    entity_id: ${sw1_entity}
+    trigger_on_initial_state: true
     on_state:
       then:
         - lvgl.widget.update:
-            id: btn_l1
+            id: sw1_lvgl
             state:
               checked: !lambda return x;
         - lvgl.label.update:
-            id: lbl_l1
+            id: sw1_status
             text: !lambda |-
-              return std::string("${l1_name}\n") + (x ? "ON" : "OFF");
+              return std::string(x ? "ON" : "OFF");
 
   - platform: homeassistant
-    id: ha_l2
-    entity_id: ${l2_entity}
-    publish_initial_state: true
+    id: ha_sw2
+    entity_id: ${sw2_entity}
+    trigger_on_initial_state: true
     on_state:
       then:
         - lvgl.widget.update:
-            id: btn_l2
+            id: sw2_lvgl
             state:
               checked: !lambda return x;
         - lvgl.label.update:
-            id: lbl_l2
+            id: sw2_status
             text: !lambda |-
-              return std::string("${l2_name}\n") + (x ? "ON" : "OFF");
-
-  - platform: homeassistant
-    id: ha_l3
-    entity_id: ${l3_entity}
-    publish_initial_state: true
-    on_state:
-      then:
-        - lvgl.widget.update:
-            id: btn_l3
-            state:
-              checked: !lambda return x;
-        - lvgl.label.update:
-            id: lbl_l3
-            text: !lambda |-
-              return std::string("${l3_name}\n") + (x ? "ON" : "OFF");
-
-  - platform: homeassistant
-    id: ha_l4
-    entity_id: ${l4_entity}
-    publish_initial_state: true
-    on_state:
-      then:
-        - lvgl.widget.update:
-            id: btn_l4
-            state:
-              checked: !lambda return x;
-        - lvgl.label.update:
-            id: lbl_l4
-            text: !lambda |-
-              return std::string("${l4_name}\n") + (x ? "ON" : "OFF");
+              return std::string(x ? "ON" : "OFF");
 
 
 output:
@@ -266,7 +347,32 @@ spi:
 font:
   - file: "gfonts://Roboto"
     id: roboto
-    size: 24
+    size: 16
+  - file: "gfonts://Roboto"
+    id: roboto_small
+    size: 14
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_20
+    size: 20
+    bpp: 4
+    glyphs:
+      - "\U000F0091" # mdi-battery-unknown
+      - "\U000F0084" # mdi-battery-charging
+      - "\U000F0079" # mdi-battery (full)
+      - "\U000F0082" # mdi-battery-90
+      - "\U000F0081" # mdi-battery-80
+      - "\U000F0080" # mdi-battery-70
+      - "\U000F007F" # mdi-battery-60
+      - "\U000F007E" # mdi-battery-50
+      - "\U000F007D" # mdi-battery-40
+      - "\U000F007C" # mdi-battery-30
+      - "\U000F007B" # mdi-battery-20
+      - "\U000F007A" # mdi-battery-10
+      - "\U000F008E" # mdi-battery-outline
+      - "\U000F05A9" # mdi-wifi
+      - "\U000F05AA" # mdi-wifi-off
+
 
 display:
   - platform: mipi_spi
@@ -302,6 +408,19 @@ touchscreen:
             }
 
 interval:
+  - interval: 5s
+    then:
+      - if:
+          condition:
+            wifi.connected
+          then:
+            - lvgl.label.update:
+                id: wifi_icon
+                text: "\U000F05A9"     # wifi
+          else:
+            - lvgl.label.update:
+                id: wifi_icon
+                text: "\U000F05AA"    # wifi-off  
   - interval: 30s
     then:
       - lambda: |-
@@ -387,115 +506,256 @@ lvgl:
   touchscreens:
     - touchscreen_id: ts
 
-  theme:
-    button:
-      bg_color: 0x303030        # OFF
-      text_color: 0xFFFFFF
-      border_width: 0
-      bg_opa: COVER
-      checked:                  # ON
-        bg_color: 0x1B5E20
-        text_color: 0xFFFFFF
+  top_layer:
+    widgets:
+      # --- BATTERY (top-left) ---
+      - label:
+          id: batt_icon
+          text: "\U000F0091"
+          align: top_left
+          x: 8
+          y: 4
+          text_font: mdi_20
+          text_color: 0x808080
+          widgets:
+            - label:
+                id: batt_pct
+                text: "--%"
+                text_font: roboto_small
+                text_color: 0x808080
+                align_to:
+                  id: batt_icon
+                  align: OUT_RIGHT_MID
+                  x: 6
 
-  style_definitions:
-    - id: light_btn
-      radius: 16
-      pad_all: 10
-      outline_width: 0
-
-    - id: grid_root
-      pad_all: 10
-      bg_opa: TRANSP
-      border_opa: TRANSP
+      # --- WIFI (top-right) ---
+      - label:
+          id: wifi_icon
+          text: "\U000F05AA"     # wifi-off na start
+          align: top_right
+          x: -8
+          y: 4
+          text_font: mdi_20
+          text_color: 0x808080
 
   pages:
     - id: main_page
+      width: 320
+      height: 240
+      pad_top: 28           # zostawia miejsce na top_layer
+      pad_left: 8
+      pad_right: 8
+      pad_bottom: 8
+      bg_color: 0x000000
+      scrollbar_mode: "OFF"
       widgets:
         - obj:
-            align: CENTER
-            width: 320
-            height: 240
-            styles: grid_root
+            id: grid_root
+            width: 100%
+            height: 100%
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            pad_all: 0
+            scrollable: false
             layout:
               type: GRID
-              grid_columns: [FR(1), FR(1)]
+              grid_columns: [FR(1), FR(1), FR(1)]
               grid_rows: [FR(1), FR(1)]
-              pad_row: 10
-              pad_column: 10
-
+              pad_row: 8
+              pad_column: 8
             widgets:
-              - button:
-                  id: btn_l1
-                  checkable: true
-                  styles: light_btn
-                  grid_cell_column_pos: 0
+
+              # ====== TOP ROW: 3 gauges (arc) ======
+              - arc:
+                  id: chart_1_arc
                   grid_cell_row_pos: 0
-                  grid_cell_x_align: STRETCH
-                  grid_cell_y_align: STRETCH
-                  widgets:
-                    - label:
-                        id: lbl_l1
-                        align: CENTER
-                        text: "${l1_name}\n--"
-                  on_click:
-                    - homeassistant.action:
-                        action: light.toggle
-                        data:
-                          entity_id: ${l1_entity}
-
-              - button:
-                  id: btn_l2
-                  checkable: true
-                  styles: light_btn
-                  grid_cell_column_pos: 1
-                  grid_cell_row_pos: 0
-                  grid_cell_x_align: STRETCH
-                  grid_cell_y_align: STRETCH
-                  widgets:
-                    - label:
-                        id: lbl_l2
-                        align: CENTER
-                        text: "${l2_name}\n--"
-                  on_click:
-                    - homeassistant.action:
-                        action: light.toggle
-                        data:
-                          entity_id: ${l2_entity}
-
-              - button:
-                  id: btn_l3
-                  checkable: true
-                  styles: light_btn
                   grid_cell_column_pos: 0
-                  grid_cell_row_pos: 1
                   grid_cell_x_align: STRETCH
                   grid_cell_y_align: STRETCH
+                  arc_width: 14
+                  value: 0
+                  min_value: 0
+                  max_value: 30
                   widgets:
                     - label:
-                        id: lbl_l3
+                        text: "CH1"
                         align: CENTER
-                        text: "${l3_name}\n--"
-                  on_click:
-                    - homeassistant.action:
-                        action: light.toggle
-                        data:
-                          entity_id: ${l3_entity}
+                        y: -10
+                        text_font: roboto
+                    - label:
+                        id: chart_1_val
+                        text: "--"
+                        align: CENTER
+                        y: 10
+                        text_font: roboto
 
-              - button:
-                  id: btn_l4
-                  checkable: true
-                  styles: light_btn
+              - arc:
+                  id: chart_2_arc
+                  grid_cell_row_pos: 0
                   grid_cell_column_pos: 1
-                  grid_cell_row_pos: 1
                   grid_cell_x_align: STRETCH
                   grid_cell_y_align: STRETCH
+                  arc_width: 14
+                  value: 0
+                  min_value: 0
+                  max_value: 30
                   widgets:
                     - label:
-                        id: lbl_l4
+                        text: "CH2"
                         align: CENTER
-                        text: "${l4_name}\n--"
-                  on_click:
-                    - homeassistant.action:
-                        action: light.toggle
-                        data:
-                          entity_id: ${l4_entity}
+                        y: -10
+                        text_font: roboto
+                    - label:
+                        id: chart_2_val
+                        text: "--"
+                        align: CENTER
+                        y: 10
+                        text_font: roboto
+
+              - arc:
+                  id: chart_3_arc
+                  grid_cell_row_pos: 0
+                  grid_cell_column_pos: 2
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  arc_width: 14
+                  value: 0
+                  min_value: 0
+                  max_value: 30
+                  widgets:
+                    - label:
+                        text: "CH3"
+                        align: CENTER
+                        y: -10
+                        text_font: roboto
+                    - label:
+                        id: chart_3_val
+                        text: "--"
+                        align: CENTER
+                        y: 10
+                        text_font: roboto
+
+              # ====== BOTTOM ROW: 1 chart + 2 switches ======
+
+              # (A) wykres jako bar (np. 0-100)
+              # ====== BOTTOM LEFT: CH4 (labels left, vertical bar right) ======
+              - obj:
+                  id: ch4_box
+                  grid_cell_row_pos: 1
+                  grid_cell_column_pos: 0
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  layout:
+                    type: FLEX
+                    flex_flow: ROW
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: CENTER
+                    flex_align_track: CENTER
+                  widgets:
+                    # LEFT: vertical bar
+                    - bar:
+                        id: chart_4_bar
+                        width: 18
+                        height: 100%
+                        min_value: 0
+                        max_value: 30
+                        value: 0
+
+                    # RIGHT: title + value stacked
+                    - obj:
+                        id: ch4_text
+                        width: 60
+                        height: 100%
+                        bg_opa: TRANSP
+                        border_opa: TRANSP
+                        pad_all: 0
+                        scrollable: false
+                        layout:
+                          type: FLEX
+                          flex_flow: COLUMN
+                          flex_align_main: CENTER
+                          flex_align_cross: START
+                          flex_align_track: CENTER
+                        widgets:
+                          - label:
+                              text: "CH4"
+                              text_font: roboto
+                          - label:
+                              id: chart_4_val
+                              text: "--.-°C"
+                              text_font: roboto_small
+
+
+
+              # (B) switch 1
+              - obj:
+                  grid_cell_row_pos: 1
+                  grid_cell_column_pos: 1
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  scrollable: false
+                  widgets:
+                    - label:
+                        text: "SW1"
+                        align: TOP_MID
+                        y: 0
+                        text_font: roboto
+                    - switch:
+                        id: sw1_lvgl
+                        width: 46
+                        height: 24
+                        align: CENTER
+                        on_click:
+                          switch.toggle: sw1_hass
+
+                    - label:
+                        id: sw1_status
+                        text: "--"
+                        width: 100%
+                        text_align: CENTER
+                        align_to:
+                          id: sw1_lvgl
+                          align: OUT_BOTTOM_MID
+                          y: 6
+                        text_font: roboto_small
+
+              # (C) switch 2
+              - obj:
+                  grid_cell_row_pos: 1
+                  grid_cell_column_pos: 2
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: STRETCH
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  scrollable: false
+                  widgets:
+                    - label:
+                        text: "SW2"
+                        align: TOP_MID
+                        y: 0
+                        text_font: roboto
+                    - switch:
+                        id: sw2_lvgl
+                        width: 46
+                        height: 24
+                        align: CENTER
+                        on_click:
+                          switch.toggle: sw2_hass
+
+                    - label:
+                        id: sw2_status
+                        text: "--"
+                        width: 100%
+                        text_align: CENTER
+                        align_to:
+                          id: sw2_lvgl
+                          align: OUT_BOTTOM_MID
+                          y: 6
+                        text_font: roboto_small
+
